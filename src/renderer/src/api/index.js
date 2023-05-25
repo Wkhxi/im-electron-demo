@@ -2,6 +2,114 @@ import timRenderInstance from '../utils/timRenderInstance'
 
 const HISTORY_MESSAGE_COUNT = 50
 
+const getIds = (conversionList) =>
+  conversionList.reduce(
+    (acc, cur) => {
+      if (cur.conv_type === 2) {
+        // 群会话
+        return {
+          ...acc,
+          groupIds: [...acc.groupIds, cur.conv_id]
+        }
+      } else if (cur.conv_type === 1) {
+        // 个人会话
+        return {
+          ...acc,
+          userIds: [...acc.userIds, cur.conv_id]
+        }
+      }
+      return acc
+    },
+    { userIds: [], groupIds: [] }
+  )
+
+/**
+ * @brief 获取任何人的个人资料
+ */
+export const getUserInfoList = async (userIdList) => {
+  const { code, json_param } = await timRenderInstance.TIMProfileGetUserProfileList({
+    json_get_user_profile_list_param: {
+      friendship_getprofilelist_param_identifier_array: userIdList,
+      friendship_getprofilelist_param_force_update: false // 是否强制更新
+    },
+    user_data: ''
+  })
+  console.log(code)
+  return json_param
+}
+
+/**
+ * @brief 获取多个群的群资料
+ */
+export const getGroupInfoList = async (groupIdList) => {
+  const { code, json_param } = await timRenderInstance.TIMGroupGetGroupInfoList({
+    groupIds: groupIdList
+  })
+  if (code !== 0) {
+    return []
+  }
+  const groupInfoList = json_param
+  console.log('groupInfoList', groupInfoList)
+
+  return groupInfoList.map((item) => item.get_groups_info_result_info) // GroupInfo 群详细信息
+}
+
+export const addProfileForConversation = async (conversationList) => {
+  // 个人会话id 和 群组会话id
+  const { userIds, groupIds } = getIds(conversationList)
+  const userInfoList = userIds.length ? await getUserInfoList(userIds) : []
+  const groupInfoList = groupIds.length ? await getGroupInfoList(groupIds) : groupIds
+
+  return conversationList.map((item) => {
+    const { conv_type, conv_id } = item
+    let profile
+    if (conv_type === 2) {
+      profile = groupInfoList.find((group) => {
+        const { group_detial_info_group_id } = group
+        return group_detial_info_group_id === conv_id
+      })
+    } else if (conv_type === 1) {
+      profile = userInfoList.find((user) => user.user_profile_identifier === conv_id)
+    }
+    return {
+      ...item,
+      conv_profile: profile || {}
+    }
+  })
+}
+/**
+ * @brief 获取最近联系人的会话列表
+ * @returns
+ */
+export const getConversionList = async () => {
+  /**
+   * 返回
+   * conv_id
+   * conv_type
+   * conv_unread_num
+   * conv_active_time
+   * conv_is_has_lastmsg
+   * conv_last_msg
+   * ...
+   */
+  const { json_param } = await timRenderInstance.TIMConvGetConvList({})
+
+  // 过滤掉 无效会话
+  const hasLastMessageList = json_param.filter((item) => item.conv_type != 0)
+  const conversationListProfile = addProfileForConversation(hasLastMessageList)
+
+  return conversationListProfile
+}
+
+/**
+ * 	从 msg_getmsglist_param_last_msg 指定的消息开始获取本地消息列表，msg_getmsglist_param_count 为要获取的消息数目。msg_getmsglist_param_last_msg 可以不指定，不指定时表示以会话最新的消息为 LastMsg 。
+ 若指定 msg_getmsglist_param_is_remble 为true 则本地消息获取不够指定数目时，会去获取云端漫游消息。
+
+ 客户端获取的消息都在本地，云端消息有漫游时间，默认存七天。
+ sdk有一个本地db，客户端拉取过的消息会存在本地db中，不受漫游时间限制
+ 云端消息存在漫游时间限制
+
+ */
 export const getMsgList = async (
   convId,
   convType,

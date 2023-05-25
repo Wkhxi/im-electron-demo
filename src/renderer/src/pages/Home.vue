@@ -1,36 +1,41 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup>
 import { ref, onMounted, watch, nextTick, toRefs } from 'vue'
-import { getMsgList } from '../api/index'
+import { getMsgList, getConversionList } from '../api/index'
 // import { addTimeDivider } from '../utils/index'
 
 import { state, mutations } from './store'
-
-const { messagesList } = toRefs(state)
-const { updateMessagesList } = mutations
+const { messagesList, userInfo, list, avChatRoomList } = toRefs(state)
+const { updateMessagesList, setList } = mutations
 
 import { sendMsg } from '../api/index'
 
 // const JSONbig = require('json-bigint')
 
-const list = ref([
-  {
-    name: '好友admin2',
-    userId: 'admin2'
-  },
-  {
-    name: '好友admin3',
-    userId: 'admin3'
-  }
-])
+// const list = ref()
 
 let selectedItem = ref({
-  userId: null,
-  name: null
+  convId: null,
+  name: null,
+  convType: null
 })
 
+const handleAVChatRoom = (item) => {
+  chooseItem(item)
+}
+
 function chooseItem(item) {
+  if (item.convId === selectedItem.value.convId) {
+    return
+  }
   selectedItem.value = item
+
+  if (messagesList.value.has(item.convId)) {
+    return
+  }
+
+  // 需要存一下当前选中的会话id
+  // 判断一下如果 convId 变化了 才 重新请求 getMessagesLists
   getMessagesList()
 }
 
@@ -39,32 +44,55 @@ const textValue = ref()
 // const messagesList = ref([])
 const messageViewRef = ref()
 
-onMounted(() => {
+/**
+ * 获取会话列表
+ */
+const initConversationList = async () => {
+  const res = await getConversionList()
+  console.log('getConversionList', res)
+  setList(
+    res.map((_e) => ({
+      name: _e.conv_profile.user_profile_nick_name || _e.conv_id,
+      convId: _e.conv_id,
+      convType: _e.conv_type
+    }))
+  )
+}
+
+onMounted(async () => {
+  // 获取好友列表
+  await initConversationList()
+  console.log('list ===', list)
+
   chooseItem(list.value[0])
+  // 获取消息列表
   getMessagesList()
 })
 
 async function getMessagesList() {
-  const res = await getMsgList(selectedItem.value.userId, 1)
+  const res = await getMsgList(selectedItem.value.convId, selectedItem.value.convType)
   // const addTimeDividerRes = addTimeDivider(res.reverse())
   console.log('res', res)
 
   const result = res.reverse().map((_e) => ({
     txt: _e.message_elem_array[0]['text_elem_content'],
-    sender: _e.message_sender === 'admin1', // 区分发送方是 自己还是好友
+    sender: _e.message_sender === userInfo.value.userID, // 区分发送方是 自己还是好友
     id: String(_e.message_msg_id)
   }))
-  updateMessagesList(result)
+  updateMessagesList({
+    convId: selectedItem.value.convId,
+    list: result
+  })
 }
 
 async function sendMessage() {
   const {
     data: { json_params: messageId }
   } = await sendMsg({
-    convId: selectedItem.value.userId,
-    convType: 1,
+    convId: selectedItem.value.convId,
+    convType: selectedItem.value.convType,
     messageElementArray: [{ elem_type: 0, text_elem_content: String(textValue.value) }],
-    userId: 'admin1',
+    userId: selectedItem.value.convId,
     callback: sendMsgSuccessCallback
   })
   console.log('messageId', messageId)
@@ -73,16 +101,18 @@ async function sendMessage() {
   // 消息id为 messageId
   // 添加最新消息 到 末尾
   // @ts-ignore
-  if (!messagesList.value.some((_e) => _e.id === messageId)) {
+  if (!messagesList.value.get(selectedItem.value.convId).some((_e) => _e.id === messageId)) {
     // @ts-ignore
-    updateMessagesList([
-      ...messagesList.value,
-      {
-        txt: textValue.value,
-        sender: true,
-        id: String(messageId)
-      }
-    ])
+    updateMessagesList({
+      convId: selectedItem.value.convId,
+      list: [
+        {
+          txt: textValue.value,
+          sender: true,
+          id: String(messageId)
+        }
+      ]
+    })
     textValue.value = ''
   }
 }
@@ -103,16 +133,16 @@ function sendMsgSuccessCallback([res, userData]) {
  */
 // @ts-ignore
 watch(
-  () => messagesList.value.length,
+  () => messagesList.value.get(selectedItem.value.convId)?.length,
   async () => {
     await nextTick()
     if (messageViewRef.value) {
       messageViewRef.value.scrollTop = messageViewRef?.value?.scrollHeight || 0
     }
-  },
-  {
-    immediate: true
   }
+  // {
+  //   immediate: true
+  // }
 )
 </script>
 
@@ -121,18 +151,28 @@ watch(
     <div class="list">
       <div
         v-for="item in list"
-        :key="item.userId"
+        :key="item['userId']"
         class="list-item"
-        :class="{ 'selected-item': selectedItem.userId === item.userId }"
+        :class="{ 'selected-item': selectedItem.convId === item['convId'] }"
         @click="chooseItem(item)"
       >
-        {{ item.name }}
+        {{ item['name'] }}
+      </div>
+      <!-- 直播群测试 -->
+      <div
+        v-for="item in avChatRoomList"
+        :key="item['convId']"
+        class="list-item"
+        :class="{ 'selected-item': selectedItem.convId === item['convId'] }"
+        @click="handleAVChatRoom(item)"
+      >
+        {{ item['name'] }}
       </div>
     </div>
     <div class="message">
       <div ref="messageViewRef" class="message-content">
         <div
-          v-for="item in messagesList"
+          v-for="item in messagesList.get(selectedItem.convId)"
           :key="item['id']"
           class="message-content-item"
           :class="{ 'right-msg': item['sender'] }"

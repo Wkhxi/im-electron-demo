@@ -2,7 +2,7 @@
 
 <script lang="ts">
 import { UserOutlined, MenuUnfoldOutlined, MenuFoldOutlined } from '@ant-design/icons-vue'
-import { defineComponent, ref } from 'vue'
+import { defineComponent, ref, toRefs } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   createGroup,
@@ -12,6 +12,8 @@ import {
   getJoinGroupList,
   getGroupMemberList
 } from './api/index'
+import { state } from './pages/store'
+const { userInfo } = toRefs(state)
 
 export default defineComponent({
   components: {
@@ -25,6 +27,14 @@ export default defineComponent({
       $router.push('/login')
     }
 
+    /**
+     * 1. 创建群组会触发 TIMAddRecvNewMsgCallback 回调
+     *      此回调中的消息是 系统消息，我们可以根据 指定的 message_conv_id 来推断其是否是 直播群，然后手动去创建直播间
+     * 2. sendMsg 会触发 TIMSetConvEventCallback 回调
+     *      去更新会话列表
+     *      ！！！在直播群中 sendMsg 并不会触发 TIMSetConvEventCallback 回调，所以不能依靠此来新建会话的窗口
+     *
+     */
     const handleCreateGroup = async () => {
       console.log('create')
       const params = {
@@ -39,22 +49,33 @@ export default defineComponent({
       console.log('curGroupId', curGroupId, res)
 
       // 发送消息，创建一个群会话
+      // @ts-ignore
       // await sendMsg({
       //   convId: curGroupId,
       //   convType: 2,
       //   messageElementArray: [
       //     {
-      //       elem_type: 3,
+      //       elem_type: 3, // ElemCustomElem 自定义消息
       //       custom_elem_data: JSON.stringify({
       //         businessID: 'group_create',
       //         content: '创建群组',
-      //         opUser: 'admin1',
+      //         opUser: userInfo.value.userID,
       //         version: 4
       //       })
       //     }
       //   ],
-      //   userId: 'admin1'
+      //   userId: userInfo.value.userID
       // })
+
+      /**
+       * 点击群组列表 -- 创建新的会话
+       * 1. 根据 conv_id 判断是否有匹配的会话
+       * 2. 有匹配到
+       *      1. updateCurrentSelectedConversation
+       *      2. updateConversationList
+       *         updateCurrentSelectedConversation
+       * 3. 页面跳转
+       */
     }
 
     const handleJoinGroup = async () => {

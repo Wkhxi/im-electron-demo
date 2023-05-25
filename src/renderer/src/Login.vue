@@ -7,6 +7,9 @@ const $router = useRouter()
 
 import timRenderInstance from './utils/timRenderInstance'
 
+import { mutations } from './pages/store'
+const { updateUserInfo } = mutations
+
 const formData = reactive({
   username: '',
   password: ''
@@ -29,6 +32,11 @@ async function onFinish(val) {
   }
   const { code } = await timRenderInstance.TIMLogin(params)
   console.log('TIMLogin code', code)
+
+  updateUserInfo({
+    userID,
+    userSig: idToSig[userID]
+  })
 
   $router.push('/layout')
 }
